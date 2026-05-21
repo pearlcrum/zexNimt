@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>젝스님트 실시간 멀티플레이</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root{
+      --bg1:#fff8fc; --bg2:#fff1f7; --panel:rgba(255,255,255,.92); --line:#f5cade;
+      --text:#5a4653; --sub:#8d7281; --pink:#ff8fc2; --pink2:#ff6cab;
+      --shadow:0 12px 30px rgba(255,108,171,.12);
+    }
+    body{ margin:0; color:var(--text); font-family:"Arial","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+      background:radial-gradient(circle at top left,#ffe8f4 0,transparent 28%),radial-gradient(circle at top right,#fff3c8 0,transparent 22%),linear-gradient(180deg,var(--bg1),var(--bg2)); min-height:100vh; }
+    .app{ max-width:1280px; margin:0 auto; padding:18px; }
+    .hero,.panel{ background:var(--panel); border:2px solid var(--line); border-radius:24px; box-shadow:var(--shadow); padding:16px; }
+    .hero{ margin-bottom:16px; padding:20px; }
+    .hero-top{ display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; align-items:center; }
+    h1{ margin:0; font-size:2rem; } h2{ margin:0 0 12px; font-size:1.12rem; }
+    h3{ margin:0 0 8px; font-size:1rem; }
+    .subtitle,.note{ color:var(--sub); font-size:.92rem; line-height:1.55; }
+    .actions,.join,.form-row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    input,select{ border:2px solid var(--line); border-radius:999px; padding:12px 14px; font-size:15px; outline:none; min-width:150px; background:white; color:var(--text); }
+    button{ border:none; border-radius:999px; padding:12px 18px; font-size:15px; font-weight:800; cursor:pointer; color:white; background:linear-gradient(135deg,var(--pink),var(--pink2)); box-shadow:0 10px 18px rgba(255,108,171,.18); }
+    button:hover:not(:disabled){ transform:translateY(-1px); }
+    button:disabled{ opacity:.45; cursor:not-allowed; } .soft-btn{ background:linear-gradient(135deg,#9ddfcb,#66c6a6); } .warn-btn{ background:linear-gradient(135deg,#ffb2c3,#ff8ca8); }
+    .layout{ display:grid; grid-template-columns:1.05fr 1.15fr .9fr; gap:16px; }
+    .wide{ grid-column:span 3; }
+    .lobby-grid{ display:grid; grid-template-columns:1fr 1.4fr; gap:16px; margin-bottom:16px; }
+    .room-list{ display:grid; gap:10px; }
+    .room-card{ background:#fffafc; border:2px dashed var(--line); border-radius:18px; padding:12px; display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; }
+    .room-card .title{ font-weight:900; margin-bottom:4px; }
+    .room-card .meta{ color:var(--sub); font-size:13px; line-height:1.45; }
+    .status-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:10px; }
+    .stat,.player-card,.row-box,.play-result,.log{ background:#fffafc; border:2px dashed var(--line); border-radius:18px; padding:12px; }
+    .stat{text-align:center; min-height:82px;} .stat .k{ display:block; color:var(--sub); font-size:12px; margin-bottom:8px; } .stat .v{ font-weight:900; font-size:1.05rem; word-break:break-all; }
+    .players{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; }
+    .player-card.me{ background:#fff4fa; border-style:solid; } .player-name{ font-weight:900; margin-bottom:6px; } .player-score{ font-size:1.3rem; font-weight:900; }
+    .player-meta{ font-size:12px; color:var(--sub); margin-top:4px; }
+    .rows{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .row-box.choice{ outline:4px solid rgba(255,108,171,.18); background:#fff3f9; cursor:pointer; }
+    .row-head{ display:flex; justify-content:space-between; gap:8px; margin-bottom:8px; } .row-title{ font-weight:900; } .row-bulls{ color:var(--sub); font-size:13px; }
+    .cards,.hand{ display:flex; flex-wrap:wrap; gap:8px; min-height:72px; align-items:flex-start; }
+    .card{ width:58px; height:74px; border-radius:16px; background:white; border:2px solid #f1bfd7; display:flex; flex-direction:column; align-items:center; justify-content:center; box-shadow:0 6px 12px rgba(0,0,0,.05); user-select:none; overflow:hidden; flex:0 0 auto; }
+    .card .num{ font-size:1.15rem; font-weight:900; line-height:1; }
+    .bull{ margin-top:7px; max-width:48px; min-height:18px; padding:2px 6px; border-radius:999px; background:#fff0f6; color:#b8718e; font-size:.78rem; font-weight:900; white-space:nowrap; line-height:1.1; display:flex; align-items:center; justify-content:center; }
+    .hand-card{ cursor:pointer; transition:transform .12s ease,border-color .12s ease,box-shadow .12s ease; }
+    .hand-card:hover{ transform:translateY(-4px); border-color:#ff9ec9; box-shadow:0 12px 18px rgba(255,108,171,.18); }
+    .hand-card.selected{ transform:translateY(-6px) scale(1.03); border-color:#ff67aa; box-shadow:0 14px 22px rgba(255,108,171,.24); background:#fff6fb; }
+    .turn-result{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; } .play-result{text-align:center; min-height:126px;} .play-result .name{font-size:13px;font-weight:900;margin-bottom:8px;} .action{font-size:12px;color:var(--sub);line-height:1.35;margin-top:6px;}
+    .badge{ display:inline-block; padding:4px 10px; border-radius:999px; background:#ffe8f2; color:#9f5577; font-size:12px; font-weight:900; }
+    .log{ min-height:180px; max-height:320px; overflow:auto; line-height:1.6; }
+    .chat-box{ display:flex; flex-direction:column; gap:10px; height:260px; }
+    .chat-messages{ flex:1; min-height:150px; overflow:auto; background:#fffafc; border:2px dashed var(--line); border-radius:18px; padding:10px; }
+    .chat-item{ margin-bottom:8px; line-height:1.35; word-break:break-word; }
+    .chat-item .chat-meta{ color:var(--sub); font-size:12px; margin-bottom:2px; }
+    .chat-item.system{ color:var(--sub); font-size:13px; text-align:center; }
+    .chat-form{ display:flex; gap:8px; }
+    .chat-form input{ flex:1; min-width:0; }
+    .chat-form button{ flex:0 0 auto; }
+    .hidden{ display:none !important; }
+    @media(max-width:1100px){ .layout,.lobby-grid{grid-template-columns:1fr;} .wide{grid-column:span 1;} .status-grid{grid-template-columns:repeat(3,1fr);} }
+    @media(max-width:700px){ .status-grid,.rows{grid-template-columns:1fr;} .card{width:54px;height:70px;} }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <section class="hero">
+      <div class="hero-top">
+        <div>
+          <h1>🐮 젝스님트 실시간 플레이</h1>
+          <div class="subtitle">방 제목과 최대 인원 4~8명을 설정할 수 있고, 부족한 자리는 컴퓨터가 자동으로 채웁니다.</div>
+        </div>
+        <div class="actions hidden" id="gameActions">
+          <button id="startBtn">게임 시작</button>
+          <button id="copyBtn" class="soft-btn">접속 정보 복사</button>
+          <button id="leaveBtn" class="warn-btn">나가기</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="lobby-grid" id="lobbyBox">
+      <div class="panel">
+        <h2>방 만들기</h2>
+        <div class="form-row">
+          <input id="createNameInput" placeholder="내 이름" maxlength="16" />
+          <input id="titleInput" placeholder="방 제목" maxlength="30" />
+          <select id="maxPlayersInput" title="최대 인원">
+            <option value="4">최대 4명</option>
+            <option value="5" selected>최대 5명</option>
+            <option value="6">최대 6명</option>
+            <option value="7">최대 7명</option>
+            <option value="8">최대 8명</option>
+          </select>
+          <button id="createBtn">방 만들기</button>
+        </div>
+        <div class="note" style="margin-top:10px;">방장이 시작하면 현재 사람 수와 상관없이 부족한 인원은 컴퓨터로 채워집니다.</div>
+      </div>
+      <div class="panel">
+        <h2>참여 가능한 방</h2>
+        <div class="form-row" style="margin-bottom:10px;">
+          <input id="joinNameInput" placeholder="참여할 내 이름" maxlength="16" />
+          <button id="refreshRoomsBtn" class="soft-btn">방 목록 새로고침</button>
+        </div>
+        <div id="roomList" class="room-list"></div>
+        <div class="note" style="margin-top:10px;">생성된 방이 있으면 방 코드를 직접 입력하지 않고 목록에서 클릭해서 입장합니다.</div>
+      </div>
+    </section>
+
+    <main class="layout hidden" id="gameLayout">
+      <section class="panel wide">
+        <h2>전체 진행</h2>
+        <div class="status-grid">
+          <div class="stat"><span class="k">방 제목</span><div class="v" id="roomTitle">-</div></div>
+          <div class="stat"><span class="k">방 코드</span><div class="v" id="roomCode">-</div></div>
+          <div class="stat"><span class="k">인원</span><div class="v" id="playerCount">0 / 5</div></div>
+          <div class="stat"><span class="k">현재 게임</span><div class="v" id="handNo">-</div></div>
+          <div class="stat"><span class="k">현재 턴</span><div class="v" id="turnNo">-</div></div>
+          <div class="stat"><span class="k">상태</span><div class="v" id="phaseText">입장 전</div></div>
+          <div class="stat"><span class="k">제출</span><div class="v" id="submitCount">-</div></div>
+        </div>
+        <div class="note" id="message" style="margin-top:10px;">방을 만들거나 목록에서 입장하세요.</div>
+      </section>
+
+      <section class="panel wide"><h2>플레이어</h2><div class="players" id="playersBoard"></div></section>
+      <section class="panel"><h2>이번 턴 공개 카드</h2><div class="turn-result" id="turnResult"></div></section>
+      <section class="panel"><h2>내 손패</h2><div class="actions" style="margin-bottom:10px;"><button id="submitBtn" disabled>선택한 카드 내기</button></div><div class="hand" id="myHand"></div><div class="note" id="handHint">입장 후 손패가 표시됩니다.</div></section>
+      <section class="panel">
+        <h2>실시간 채팅</h2>
+        <div class="chat-box">
+          <div id="chatMessages" class="chat-messages"><div class="note">방에 입장하면 채팅이 표시됩니다.</div></div>
+          <form id="chatForm" class="chat-form">
+            <input id="chatInput" placeholder="메시지 입력" maxlength="300" autocomplete="off" />
+            <button id="chatSendBtn" type="submit" class="soft-btn">전송</button>
+          </form>
+        </div>
+      </section>
+      <section class="panel wide"><h2>테이블의 4개 줄</h2><div class="rows" id="rowsBoard"></div><div class="note" id="rowsHint">게임 시작 전입니다.</div></section>
+      <section class="panel wide"><h2>게임 로그</h2><div id="log" class="log"></div></section>
+    </main>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let roomState = null;
+    let roomList = [];
+    let privateState = { hand: [], playerId: null, canSubmit: false, mustChooseRow: false };
+    let selectedCard = null;
+    let chatHistory = [];
+
+    const $ = id => document.getElementById(id);
+    const els = {
+      lobbyBox: $("lobbyBox"), gameLayout: $("gameLayout"), gameActions: $("gameActions"),
+      createNameInput: $("createNameInput"), joinNameInput: $("joinNameInput"), titleInput: $("titleInput"), maxPlayersInput: $("maxPlayersInput"),
+      createBtn: $("createBtn"), refreshRoomsBtn: $("refreshRoomsBtn"), startBtn: $("startBtn"), copyBtn: $("copyBtn"), leaveBtn: $("leaveBtn"), roomList: $("roomList"),
+      roomTitle: $("roomTitle"), roomCode: $("roomCode"), playerCount: $("playerCount"), handNo: $("handNo"), turnNo: $("turnNo"), phaseText: $("phaseText"), submitCount: $("submitCount"), message: $("message"),
+      playersBoard: $("playersBoard"), turnResult: $("turnResult"), myHand: $("myHand"), submitBtn: $("submitBtn"), handHint: $("handHint"), rowsBoard: $("rowsBoard"), rowsHint: $("rowsHint"), log: $("log"),
+      chatMessages: $("chatMessages"), chatForm: $("chatForm"), chatInput: $("chatInput"), chatSendBtn: $("chatSendBtn")
+    };
+
+    function bullHeads(n){ if(n===55)return 7; if(n%11===0)return 5; if(n%10===0)return 3; if(n%5===0)return 2; return 1; }
+    function rowBullTotal(row){ return row.reduce((s,c)=>s+bullHeads(c),0); }
+    function createCardEl(num, cls=""){
+      const div=document.createElement("div"); div.className="card "+cls;
+      const bulls = bullHeads(num);
+      div.innerHTML=`<div class="num">${num}</div><div class="bull" title="황소 ${bulls}개">🐮×${bulls}</div>`;
+      return div;
+    }
+    function phaseLabel(phase){ return ({ lobby:"대기방", playing:"카드 선택", resolving:"처리 중", choosingRow:"줄 선택", betweenHands:"다음 게임 준비", finished:"최종 종료" })[phase] || phase || "-"; }
+    function createName(){ return els.createNameInput.value.trim(); }
+    function joinName(){ return els.joinNameInput.value.trim(); }
+    function handleAck(res){ if(!res?.ok) alert(res?.error || "요청 실패"); }
+    function escapeHtml(s){ return String(s).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+
+    els.createBtn.onclick = () => {
+      const name = createName();
+      const title = els.titleInput.value.trim();
+      const missing = [];
+      if(!name) missing.push("내 이름");
+      if(!title) missing.push("방 제목");
+      if(missing.length){ alert(`${missing.join(", ")}을(를) 입력하세요.`); return; }
+      socket.emit("createRoom", {
+        name,
+        title,
+        maxPlayers: Number(els.maxPlayersInput.value)
+      }, handleAck);
+    };
+
+    els.refreshRoomsBtn.onclick = () => renderRoomList();
+    els.startBtn.onclick = () => socket.emit("startGame", handleAck);
+    els.submitBtn.onclick = () => {
+      if(!selectedCard) return;
+      socket.emit("submitCard", { card: selectedCard }, res => { handleAck(res); if(res?.ok) selectedCard=null; });
+    };
+    els.copyBtn.onclick = async () => {
+      const text = `접속 주소: ${location.origin}\n방 제목: ${roomState?.title || "-"}\n방 코드: ${roomState?.code || "-"}`;
+      try { await navigator.clipboard.writeText(text); alert("접속 정보를 복사했습니다."); }
+      catch { prompt("아래 내용을 복사하세요", text); }
+    };
+
+    els.leaveBtn.onclick = () => {
+      if(!roomState) return;
+      const ok = confirm("현재 방에서 나가 로비로 이동할까요? 게임 중이라면 남은 플레이어끼리 계속 진행됩니다.");
+      if(!ok) return;
+      socket.emit("leaveRoom", handleAck);
+    };
+
+
+    els.chatForm.onsubmit = (e) => {
+      e.preventDefault();
+      if(!roomState) return alert("방에 입장한 뒤 채팅할 수 있습니다.");
+      const text = els.chatInput.value.trim();
+      if(!text) return alert("메시지를 입력하세요.");
+      socket.emit("sendChat", { text }, res => {
+        handleAck(res);
+        if(res?.ok) els.chatInput.value = "";
+      });
+    };
+
+    socket.on("roomList", list => { roomList = list || []; renderRoomList(); });
+    socket.on("roomState", state => { roomState = state; render(); });
+    socket.on("privateState", state => { privateState = state; if(!privateState.hand.includes(selectedCard)) selectedCard=null; render(); });
+    socket.on("logs", logs => { els.log.innerHTML = logs.map(x => `<div>${escapeHtml(x)}</div>`).join(""); });
+    socket.on("chatHistory", chats => { chatHistory = chats || []; renderChat(); });
+    socket.on("leftRoom", () => {
+      roomState = null;
+      privateState = { hand: [], playerId: null, canSubmit: false, mustChooseRow: false };
+      selectedCard = null;
+      els.lobbyBox.classList.remove("hidden");
+      els.gameLayout.classList.add("hidden");
+      els.gameActions.classList.add("hidden");
+      els.log.innerHTML = "";
+      chatHistory = [];
+      renderChat();
+      renderRoomList();
+    });
+
+    function renderRoomList(){
+      els.roomList.innerHTML = "";
+      const available = roomList.filter(r => r.canJoin);
+      if(!available.length){
+        els.roomList.innerHTML = '<div class="note">현재 참여 가능한 방이 없습니다. 먼저 방을 만들어 주세요.</div>';
+        return;
+      }
+      available.forEach(room => {
+        const div = document.createElement("div");
+        div.className = "room-card";
+        div.innerHTML = `<div><div class="title">${escapeHtml(room.title)}</div><div class="meta">방장: ${escapeHtml(room.hostName)} · 인원 ${room.playerCount}/${room.maxPlayers} · 코드 ${escapeHtml(room.code)}</div></div><button class="soft-btn">입장</button>`;
+        div.querySelector("button").onclick = () => {
+          const name = joinName();
+          if(!name.trim()) return alert("참여할 내 이름을 입력하세요.");
+          socket.emit("joinRoom", { code: room.code, name }, handleAck);
+        };
+        els.roomList.appendChild(div);
+      });
+    }
+
+    function render(){
+      if(!roomState) return;
+      els.lobbyBox.classList.add("hidden");
+      els.gameLayout.classList.remove("hidden");
+      els.gameActions.classList.remove("hidden");
+      els.roomTitle.textContent = roomState.title || "-";
+      els.roomCode.textContent = roomState.code;
+      els.playerCount.textContent = `${roomState.players.length} / ${roomState.maxPlayers}`;
+      els.handNo.textContent = roomState.currentHandNo ? `${roomState.currentHandNo} / ${roomState.totalHands}` : "-";
+      els.turnNo.textContent = roomState.currentTurnNo ? `${roomState.currentTurnNo} / ${roomState.handSize}` : "-";
+      els.phaseText.textContent = phaseLabel(roomState.phase);
+      els.submitCount.textContent = roomState.phase === "playing" ? `${roomState.submissions} / ${roomState.requiredSubmissions || roomState.players.length}` : "-";
+      els.message.textContent = roomState.message || "-";
+      els.startBtn.disabled = !(roomState.hostId === privateState.playerId && roomState.phase === "lobby");
+      renderPlayers(); renderRows(); renderHand(); renderTurnResult(); renderChat();
+    }
+
+    function renderPlayers(){
+      els.playersBoard.innerHTML = "";
+      roomState.players.forEach(p => {
+        const div=document.createElement("div"); div.className="player-card"+(p.id===privateState.playerId?" me":"");
+        div.innerHTML=`<div class="player-name">${escapeHtml(p.name)} ${p.id===roomState.hostId?"👑":""}</div><div class="player-score">${p.score}점</div><div class="player-meta">손패 ${p.handCount}장 / ${p.isAi?"컴퓨터":(p.connected?"접속 중":"끊김")}</div><div class="player-meta">${p.submitted?"제출 완료":""}</div><div class="player-meta">${escapeHtml(p.lastAction||"")}</div>`;
+        els.playersBoard.appendChild(div);
+      });
+    }
+
+    function renderRows(){
+      els.rowsBoard.innerHTML = "";
+      (roomState.rows || []).forEach((row, idx) => {
+        const box=document.createElement("div"); box.className="row-box"+(privateState.mustChooseRow?" choice":"");
+        box.innerHTML=`<div class="row-head"><div class="row-title">줄 ${idx+1}</div><div class="row-bulls">벌점 합: ${rowBullTotal(row)}점</div></div><div class="cards"></div>`;
+        const wrap=box.querySelector(".cards"); row.forEach(c=>wrap.appendChild(createCardEl(c)));
+        if(privateState.mustChooseRow){ box.onclick=()=>socket.emit("chooseRow", { rowIndex: idx }, handleAck); }
+        els.rowsBoard.appendChild(box);
+      });
+      els.rowsHint.textContent = privateState.mustChooseRow ? "내 차례입니다. 가져갈 줄 하나를 클릭하세요." : "카드는 서버에서 낮은 숫자부터 순서대로 배치됩니다.";
+    }
+
+    function renderHand(){
+      els.myHand.innerHTML = "";
+      privateState.hand.forEach(card => {
+        const el=createCardEl(card, "hand-card"+(selectedCard===card?" selected":""));
+        el.onclick=()=>{ if(!privateState.canSubmit) return; selectedCard=card; renderHand(); };
+        els.myHand.appendChild(el);
+      });
+      els.submitBtn.disabled = !(privateState.canSubmit && selectedCard);
+      els.handHint.textContent = privateState.canSubmit ? "카드 1장을 선택해서 제출하세요. 제출 후에는 공개 전까지 숫자가 다른 사람에게 보이지 않습니다." : (privateState.mustChooseRow ? "가져갈 줄을 선택해야 합니다." : "현재는 제출할 수 없습니다.");
+    }
+
+    function renderChat(){
+      if(!els.chatMessages) return;
+      if(!roomState){
+        els.chatMessages.innerHTML = '<div class="note">방에 입장하면 채팅이 표시됩니다.</div>';
+        return;
+      }
+      if(!chatHistory.length){
+        els.chatMessages.innerHTML = '<div class="note">아직 메시지가 없습니다.</div>';
+      } else {
+        els.chatMessages.innerHTML = chatHistory.map(item => {
+          if(item.system){
+            return `<div class="chat-item system">${escapeHtml(item.text)}</div>`;
+          }
+          return `<div class="chat-item"><div class="chat-meta">${escapeHtml(item.sender)} · ${escapeHtml(item.time || "")}</div><div>${escapeHtml(item.text)}</div></div>`;
+        }).join("");
+      }
+      els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+    }
+
+    function renderTurnResult(){
+      els.turnResult.innerHTML = "";
+      (roomState.players || []).forEach(p => {
+        const box=document.createElement("div"); box.className="play-result";
+        box.innerHTML=`<div class="name">${escapeHtml(p.name)}</div><div class="slot"></div><div class="action">${escapeHtml(p.lastAction||"")}</div>`;
+        const slot=box.querySelector(".slot");
+        if(p.lastPlayedCard) slot.appendChild(createCardEl(p.lastPlayedCard)); else slot.innerHTML = p.submitted ? '<span class="badge">제출 완료</span>' : '<span class="badge">미제출</span>';
+        els.turnResult.appendChild(box);
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+외부접속 가능하도록 cloudflared 활용하는 방법
+
+1) 게임 서버 실행
+   - 프로젝트 폴더에서 명령 프롬프트/PowerShell을 엽니다.
+   - 아래 명령을 실행합니다.
+
+   npm install
+   npm start
+
+   - 브라우저에서 http://localhost:3000 접속이 되면 게임 서버가 정상 실행 중입니다.
+   - 이 창은 닫으면 안 됩니다.
+
+2) cloudflared 설치 확인
+   - 새 명령 프롬프트/PowerShell을 열고 아래를 실행합니다.
+
+   cloudflared --version
+
+   - 버전이 나오면 설치 완료입니다.
+   - 인식되지 않으면 cloudflared.exe를 설치하거나, cloudflared.exe가 있는 폴더에서 실행해야 합니다.
+
+3) Cloudflare Quick Tunnel 실행
+   - 게임 서버 창은 그대로 두고 새 명령 프롬프트/PowerShell에서 아래를 실행합니다.
+
+   cloudflared tunnel --url http://localhost:3000
+
+   - 직접 다운로드한 exe를 쓰는 경우 예시는 아래와 같습니다.
+
+   cd C:\cloudflared
+   .\cloudflared.exe tunnel --url http://localhost:3000
+
+4) 친구들에게 주소 공유
+   - 정상 실행되면 아래처럼 trycloudflare.com 주소가 나옵니다.
+
+   https://xxxxx.trycloudflare.com
+
+   - 이 주소를 친구들에게 보내면 같은 와이파이가 아니어도 접속할 수 있습니다.
+
+5) 주의사항
+   - npm start 창과 cloudflared tunnel 창이 둘 다 켜져 있어야 합니다.
+   - 둘 중 하나라도 닫히면 외부 접속이 끊깁니다.
+   - Quick Tunnel 주소는 실행할 때마다 바뀔 수 있습니다.
