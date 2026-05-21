@@ -17,6 +17,8 @@ const CONFIG = {
   totalHands: 5,
   handSize: 10,
   rowCount: 4,
+  turnSeconds: 15,
+  gmPassword: "0112",
 };
 
 const rooms = new Map();
@@ -32,6 +34,40 @@ function roomCode() {
 
 function isBlank(value) {
   return !String(value || "").trim();
+}
+
+function hasEmoji(value) {
+  return /[\p{Extended_Pictographic}\uFE0F]/u.test(String(value || ""));
+}
+
+function containsGM(name) {
+  return String(name || "").toUpperCase().includes("GM");
+}
+
+function validateName(name, room = null) {
+  const cleaned = cleanName(name);
+  if (isBlank(cleaned)) return "내 이름을 입력하세요.";
+  if (hasEmoji(cleaned)) return "이름에는 이모지나 이모티콘을 사용할 수 없습니다.";
+  if (room && room.players.some(p => !p.isAi && p.name === cleaned)) return "이미 같은 이름으로 입장한 사람이 있습니다. 다른 이름을 사용하세요.";
+  return null;
+}
+
+function validateTitle(title) {
+  const cleaned = cleanTitle(title);
+  if (isBlank(cleaned)) return "방 제목을 입력하세요.";
+  if (hasEmoji(cleaned)) return "방 제목에는 이모지나 이모티콘을 사용할 수 없습니다.";
+  if ([...rooms.values()].some(room => room.title === cleaned && room.phase === "lobby")) return "이미 같은 방 제목이 있습니다. 다른 방 제목을 사용하세요.";
+  return null;
+}
+
+function validateGmPassword(name, gmPassword) {
+  if (!containsGM(name)) return null;
+  if (String(gmPassword || "") !== CONFIG.gmPassword) return "이름에 GM을 사용하려면 비밀번호가 필요합니다.";
+  return null;
+}
+
+function displayPlayerName(player) {
+  return `${player.name}${player.isGM ? " 👑" : ""}`;
 }
 
 function cleanName(name) {
@@ -74,10 +110,12 @@ function buildDeck() {
 }
 
 function createPlayer(socket, name) {
+  const cleanedName = cleanName(name);
   return {
     id: socket.id,
     socketId: socket.id,
-    name: cleanName(name),
+    name: cleanedName,
+    isGM: containsGM(cleanedName),
     score: 0,
     hand: [],
     takenCards: [],
@@ -93,6 +131,7 @@ function createAiPlayer(index) {
     id: `AI_${Date.now()}_${index}_${Math.random().toString(16).slice(2, 6)}`,
     socketId: null,
     name: `🤖 컴퓨터 ${index}`,
+    isGM: false,
     score: 0,
     hand: [],
     takenCards: [],
@@ -108,7 +147,7 @@ function ensureAiPlayers(room) {
   while (room.players.length < room.maxPlayers) {
     const ai = createAiPlayer(aiIndex++);
     room.players.push(ai);
-    addLog(room, `${ai.name}가 빈 자리에 참여했습니다.`);
+    addLog(room, `${displayPlayerName(ai)}가 빈 자리에 참여했습니다.`);
   }
 }
 
@@ -151,7 +190,7 @@ function submitAiCards(room) {
     player.hand.splice(player.hand.indexOf(card), 1);
     room.submissions[player.id] = card;
     player.lastAction = "AI 카드 제출 완료";
-    addLog(room, `${player.name}가 카드를 냈습니다. (${Object.keys(room.submissions).length}/${room.players.length})`);
+    addLog(room, `${displayPlayerName(player)}가 카드를 냈습니다. (${Object.keys(room.submissions).length}/${room.players.length})`);
   });
 }
 
@@ -164,7 +203,7 @@ function roomListItem(room) {
     maxPlayers: room.maxPlayers,
     playerCount: room.players.length,
     humanPlayers,
-    hostName: room.players.find(p => p.id === room.hostId)?.name || "방장",
+    hostName: room.players.find(p => p.id === room.hostId) ? displayPlayerName(room.players.find(p => p.id === room.hostId)) : "방장",
     canJoin: room.phase === "lobby" && room.players.length < room.maxPlayers,
     message: room.message,
   };
@@ -199,6 +238,7 @@ function publicRoom(room) {
       handCount: p.hand.length,
       connected: p.connected,
       isAi: Boolean(p.isAi),
+      isGM: Boolean(p.isGM),
       submitted: Boolean(room.submissions?.[p.id]),
       lastPlayedCard: p.lastPlayedCard ?? null,
       lastAction: p.lastAction || "대기",
@@ -210,6 +250,8 @@ function publicRoom(room) {
     minPlayers: CONFIG.minPlayers,
     waitingPlayerId: room.waitingPlayerId || null,
     gameOver: room.gameOver,
+    turnDeadline: room.turnDeadline || null,
+    turnRemaining: room.phase === "playing" && room.turnDeadline ? Math.max(0, Math.ceil((room.turnDeadline - Date.now()) / 1000)) : null,
   };
 }
 
@@ -264,6 +306,60 @@ function findPlacement(room, card) {
     .sort((a, b) => a.diff - b.diff)[0] || null;
 }
 
+
+function clearTurnTimer(room) {
+  if (room?.turnTimer) {
+    clearInterval(room.turnTimer);
+    room.turnTimer = null;
+  }
+  if (room) room.turnDeadline = null;
+}
+
+function autoSubmitMissingCards(room) {
+  if (!room || room.phase !== "playing") return;
+  const missing = room.players.filter(p => !p.isAi && p.hand.length > 0 && !room.submissions[p.id]);
+  missing.forEach(player => {
+    const randomIndex = Math.floor(Math.random() * player.hand.length);
+    const card = player.hand.splice(randomIndex, 1)[0];
+    room.submissions[player.id] = card;
+    player.lastAction = "시간 초과: 랜덤 제출";
+    addLog(room, `${displayPlayerName(player)}님이 15초 안에 내지 않아 랜덤으로 카드를 냈습니다.`);
+    addChat(room, "알림", `케로로가 대신 골랐어요! ${displayPlayerName(player)}님이 15초 안에 내지 않아 랜덤으로 카드를 냈습니다.`);
+    io.to(room.code).emit("cuteNotice", { type: "timeout", text: `${displayPlayerName(player)}님이 15초 안에 내지 않아 랜덤 카드가 제출됐습니다.` });
+  });
+  submitAiCards(room);
+  updateTurnMessage(room);
+  emitRoom(room);
+  if (Object.keys(room.submissions).length >= room.players.length) startResolvingTurn(room);
+}
+
+function updateTurnMessage(room) {
+  if (!room || room.phase !== "playing" || !room.turnDeadline) return;
+  const remain = Math.max(0, Math.ceil((room.turnDeadline - Date.now()) / 1000));
+  const missing = room.players.filter(p => !p.isAi && p.hand.length > 0 && !room.submissions[p.id]).map(displayPlayerName);
+  if (missing.length) {
+    room.message = `${remain}초 안에 카드를 내세요. 15초 안에 내지 않으면 랜덤으로 제출됩니다. 대기 중: ${missing.join(", ")}`;
+  } else {
+    room.message = "모든 플레이어가 제출했습니다. 카드를 공개합니다.";
+  }
+}
+
+function startTurnTimer(room) {
+  clearTurnTimer(room);
+  if (!room || room.phase !== "playing") return;
+  room.turnDeadline = Date.now() + CONFIG.turnSeconds * 1000;
+  updateTurnMessage(room);
+  room.turnTimer = setInterval(() => {
+    if (!rooms.has(room.code) || room.phase !== "playing") { clearTurnTimer(room); return; }
+    updateTurnMessage(room);
+    emitRoom(room);
+    if (Date.now() >= room.turnDeadline) {
+      clearTurnTimer(room);
+      autoSubmitMissingCards(room);
+    }
+  }, 1000);
+}
+
 function startHand(room) {
   room.currentHandNo += 1;
   room.currentTurnNo = 1;
@@ -275,7 +371,7 @@ function startHand(room) {
   room.waitingPlayerId = null;
   room.pendingCard = null;
   room.phase = "playing";
-  room.message = "카드를 선택해서 내세요.";
+  room.message = "15초 안에 카드를 선택해서 내세요. 시간이 지나면 랜덤으로 제출됩니다.";
 
   room.players.forEach(p => {
     p.hand = room.deck.splice(0, CONFIG.handSize).sort((a, b) => a - b);
@@ -286,11 +382,13 @@ function startHand(room) {
   for (let i = 0; i < CONFIG.rowCount; i++) room.rows.push([room.deck.shift()]);
   addLog(room, `${room.currentHandNo}번째 게임 시작. 시작 줄: ${room.rows.map(r => r[0]).join(", ")}`);
   submitAiCards(room);
+  startTurnTimer(room);
   emitRoom(room);
   if (Object.keys(room.submissions).length >= room.players.length) startResolvingTurn(room);
 }
 
 function finishHand(room) {
+  clearTurnTimer(room);
   addLog(room, `${room.currentHandNo}번째 게임 종료.`);
   room.players.forEach(p => {
     p.hand = [];
@@ -325,9 +423,10 @@ function processNextPlay(room) {
     if (room.currentTurnNo > CONFIG.handSize) finishHand(room);
     else {
       room.phase = "playing";
-      room.message = "다음 턴 카드를 선택해서 내세요.";
+      room.message = "다음 턴입니다. 15초 안에 카드를 선택해서 내세요. 시간이 지나면 랜덤으로 제출됩니다.";
       room.players.forEach(p => { p.lastAction = p.isAi ? "AI 카드 선택 중" : "카드 선택 중"; });
       submitAiCards(room);
+      startTurnTimer(room);
       emitRoom(room);
       if (Object.keys(room.submissions).length >= room.players.length) startResolvingTurn(room);
     }
@@ -351,7 +450,7 @@ function processNextPlay(room) {
       player.takenCards.push(...taken);
       room.rows[chosenRowIndex] = [play.card];
       player.lastAction = `줄 ${chosenRowIndex + 1} 가져감 → +${penalty}점`;
-      addLog(room, `${player.name}의 ${play.card}는 어느 줄에도 들어가지 않아 줄 ${chosenRowIndex + 1}을 가져가 ${penalty}점을 받았습니다.`);
+      addLog(room, `${displayPlayerName(player)}의 ${play.card}는 어느 줄에도 들어가지 않아 줄 ${chosenRowIndex + 1}을 가져가 ${penalty}점을 받았습니다.`);
       emitRoom(room);
       setTimeout(() => processNextPlay(room), 650);
       return;
@@ -359,9 +458,9 @@ function processNextPlay(room) {
     room.phase = "choosingRow";
     room.waitingPlayerId = player.id;
     room.pendingCard = play.card;
-    room.message = `${player.name}님이 가져갈 줄을 선택해야 합니다.`;
+    room.message = `${displayPlayerName(player)}님이 가져갈 줄을 선택해야 합니다.`;
     player.lastAction = "줄 선택 대기";
-    addLog(room, `${player.name}의 ${play.card}는 어느 줄에도 들어가지 않아 줄 선택이 필요합니다.`);
+    addLog(room, `${displayPlayerName(player)}의 ${play.card}는 어느 줄에도 들어가지 않아 줄 선택이 필요합니다.`);
     emitRoom(room);
     return;
   }
@@ -374,7 +473,7 @@ function processNextPlay(room) {
     player.takenCards.push(...taken);
     room.rows[placement.idx] = [play.card];
     player.lastAction = `줄 ${placement.idx + 1}의 6번째 카드 → +${penalty}점`;
-    addLog(room, `${player.name}의 ${play.card}가 줄 ${placement.idx + 1}의 6번째 카드가 되어 ${penalty}점을 받았습니다.`);
+    addLog(room, `${displayPlayerName(player)}의 ${play.card}가 줄 ${placement.idx + 1}의 6번째 카드가 되어 ${penalty}점을 받았습니다.`);
   } else {
     row.push(play.card);
     player.lastAction = `줄 ${placement.idx + 1}에 배치`;
@@ -385,11 +484,12 @@ function processNextPlay(room) {
 
 function startResolvingTurn(room) {
   if (!room || room.phase !== "playing") return;
+  clearTurnTimer(room);
   room.phase = "resolving";
   room.message = "카드를 낮은 숫자부터 처리 중입니다.";
   room.turnCards = Object.entries(room.submissions)
     .filter(([playerId]) => room.players.some(p => p.id === playerId))
-    .map(([playerId, card]) => ({ playerId, card, name: room.players.find(p => p.id === playerId)?.name }))
+    .map(([playerId, card]) => { const p = room.players.find(p => p.id === playerId); return { playerId, card, name: p ? displayPlayerName(p) : "플레이어" }; })
     .sort((a, b) => a.card - b.card);
   room.pendingPlays = room.turnCards.map(x => ({ playerId: x.playerId, card: x.card }));
   room.players.forEach(p => {
@@ -416,7 +516,8 @@ function removePlayerFromRoom(room, playerId, reason) {
   const wasChoosingRow = room.waitingPlayerId === playerId;
   room.players.splice(idx, 1);
   addLog(room, `${name}님이 ${reason} 게임에서 제외되었습니다.`);
-  addChat(room, "알림", `${name}님이 게임에서 제외되었습니다.`);
+  addChat(room, "알림", `케로로 안내: ${name}님이 방에서 나갔습니다.`);
+  io.to(room.code).emit("cuteNotice", { type: "leave", text: `${name}님이 방에서 나갔습니다.` });
 
   if (room.players.length === 0) {
     rooms.delete(room.code);
@@ -427,7 +528,7 @@ function removePlayerFromRoom(room, playerId, reason) {
   if (room.hostId === playerId) {
     const nextHost = room.players.find(p => !p.isAi) || room.players[0];
     room.hostId = nextHost.id;
-    addLog(room, `${nextHost.name}님이 새 방장이 되었습니다.`);
+    addLog(room, `${displayPlayerName(nextHost)}님이 새 방장이 되었습니다.`);
   }
 
   if (wasChoosingRow) {
@@ -466,8 +567,9 @@ function leaveCurrentRoom(socket, notifySelf = true) {
       emitRoomList();
     } else {
       if (room.hostId === socket.id) room.hostId = room.players[0].id;
-      addLog(room, `${name}님이 로비에서 나갔습니다.`);
-      addChat(room, "알림", `${name}님이 로비에서 나갔습니다.`);
+      addLog(room, `${name}님이 방에서 나갔습니다.`);
+      addChat(room, "알림", `케로로 안내: ${name}님이 방에서 나갔습니다.`);
+      io.to(room.code).emit("cuteNotice", { type: "leave", text: `${name}님이 방에서 나갔습니다.` });
       emitRoom(room);
     }
     return room;
@@ -483,9 +585,13 @@ function leaveCurrentRoom(socket, notifySelf = true) {
 io.on("connection", socket => {
   socket.emit("roomList", [...rooms.values()].filter(room => room.phase === "lobby").map(roomListItem));
 
-  socket.on("createRoom", ({ name, title, maxPlayers }, cb) => {
-    if (isBlank(name)) return cb?.({ ok: false, error: "내 이름을 입력하세요." });
-    if (isBlank(title)) return cb?.({ ok: false, error: "방 제목을 입력하세요." });
+  socket.on("createRoom", ({ name, title, maxPlayers, gmPassword }, cb) => {
+    const nameError = validateName(name);
+    if (nameError) return cb?.({ ok: false, error: nameError });
+    const titleError = validateTitle(title);
+    if (titleError) return cb?.({ ok: false, error: titleError });
+    const gmError = validateGmPassword(name, gmPassword);
+    if (gmError) return cb?.({ ok: false, error: gmError });
     const code = roomCode();
     const player = createPlayer(socket, name);
     const room = {
@@ -510,26 +616,33 @@ io.on("connection", socket => {
     rooms.set(code, room);
     socket.join(code);
     socket.data.roomCode = code;
-    addLog(room, `${player.name}님이 '${room.title}' 방을 만들었습니다. 최대 ${room.maxPlayers}명.`);
-    addChat(room, "알림", `${player.name}님이 방을 만들었습니다.`);
+    addLog(room, `${displayPlayerName(player)}님이 '${room.title}' 방을 만들었습니다. 최대 ${room.maxPlayers}명.`);
+    addChat(room, "알림", `케로로 안내: ${displayPlayerName(player)}님이 방을 만들었습니다.`);
+    io.to(room.code).emit("cuteNotice", { type: "join", text: `${displayPlayerName(player)}님이 방을 만들었습니다.` });
     emitRoom(room);
     io.to(socket.id).emit("chatHistory", room.chats);
     cb?.({ ok: true, code, playerId: socket.id });
   });
 
-  socket.on("joinRoom", ({ code, name }, cb) => {
-    if (isBlank(name)) return cb?.({ ok: false, error: "참여할 내 이름을 입력하세요." });
+  socket.on("joinRoom", ({ code, name, gmPassword }, cb) => {
+    const blankNameError = validateName(name);
+    if (blankNameError) return cb?.({ ok: false, error: blankNameError });
+    const gmError = validateGmPassword(name, gmPassword);
+    if (gmError) return cb?.({ ok: false, error: gmError });
     code = String(code || "").trim().toUpperCase();
     const room = rooms.get(code);
     if (!room) return cb?.({ ok: false, error: "방을 찾을 수 없습니다." });
+    const roomNameError = validateName(name, room);
+    if (roomNameError) return cb?.({ ok: false, error: roomNameError });
     if (room.phase !== "lobby") return cb?.({ ok: false, error: "이미 시작된 방에는 새로 입장할 수 없습니다." });
     if (room.players.length >= room.maxPlayers) return cb?.({ ok: false, error: "방이 가득 찼습니다." });
     const player = createPlayer(socket, name);
     room.players.push(player);
     socket.join(code);
     socket.data.roomCode = code;
-    addLog(room, `${player.name}님이 입장했습니다. (${room.players.length}/${room.maxPlayers})`);
-    addChat(room, "알림", `${player.name}님이 입장했습니다.`);
+    addLog(room, `${displayPlayerName(player)}님이 입장했습니다. (${room.players.length}/${room.maxPlayers})`);
+    addChat(room, "알림", `케로로 안내: ${displayPlayerName(player)}님이 입장했습니다.`);
+    io.to(room.code).emit("cuteNotice", { type: "join", text: `${displayPlayerName(player)}님이 입장했습니다.` });
     emitRoom(room);
     io.to(socket.id).emit("chatHistory", room.chats || []);
     cb?.({ ok: true, code, playerId: socket.id });
@@ -562,8 +675,9 @@ io.on("connection", socket => {
     player.hand.splice(player.hand.indexOf(card), 1);
     room.submissions[player.id] = card;
     player.lastAction = "카드 제출 완료";
-    addLog(room, `${player.name}님이 카드를 냈습니다. (${Object.keys(room.submissions).length}/${room.players.length})`);
+    addLog(room, `${displayPlayerName(player)}님이 카드를 냈습니다. (${Object.keys(room.submissions).length}/${room.players.length})`);
     submitAiCards(room);
+    updateTurnMessage(room);
     emitRoom(room);
     cb?.({ ok: true });
     if (Object.keys(room.submissions).length >= room.players.length) startResolvingTurn(room);
@@ -582,7 +696,7 @@ io.on("connection", socket => {
     player.takenCards.push(...taken);
     room.rows[rowIndex] = [room.pendingCard];
     player.lastAction = `줄 ${rowIndex + 1} 가져감 → +${penalty}점`;
-    addLog(room, `${player.name}님이 줄 ${rowIndex + 1}을 가져가 ${penalty}점을 받았습니다.`);
+    addLog(room, `${displayPlayerName(player)}님이 줄 ${rowIndex + 1}을 가져가 ${penalty}점을 받았습니다.`);
     room.waitingPlayerId = null;
     room.pendingCard = null;
     room.phase = "resolving";
